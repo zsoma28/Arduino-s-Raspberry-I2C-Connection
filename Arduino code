@@ -1,32 +1,69 @@
 #include <Wire.h>
 #include <DHT.h>
 
-#define SLAVE_ADDRESS 0x04  // I2C slave cím, változtatható
-#define DHTPIN 4            // DHT szenzor pin (pl. GPIO4 az Arduino-n)
-#define DHTTYPE DHT11       // DHT11 vagy DHT22
+#define SLAVE_ADDRESS 0x04  // I2C slave cím (Raspberry-n: i2cdetect -y 1)
+#define DHTPIN 4            // DHT szenzor kimenete az Arduino 4-es pinjén
+#define DHTTYPE DHT11       // DHT11-et használsz (DHT22-höz írd át)
 
 DHT dht(DHTPIN, DHTTYPE);
-char dataBuffer[50];  // Buffer az adatokhoz
+
+// Globális változók az adatok tárolására
+volatile float lastTemp = 0.0;
+volatile float lastHum = 0.0;
+char dataBuffer[32]; // Elég nagy a "25.50,60.10" formátumhoz
 
 void setup() {
+  Serial.begin(9600);
+  
+  // I2C inicializálása
   Wire.begin(SLAVE_ADDRESS);
-  Wire.onRequest(sendData);  // Küldés kérésre
+  Wire.onRequest(sendData); // Akkor fut le, ha a Pi adatot kér
+  
   dht.begin();
-  Serial.begin(9600);  // Debugoláshoz opcionális
+  Serial.println("I2C DHT11 Szenzor elindult...");
 }
 
 void loop() {
-  delay(2000);  // Olvasás 2 másodpercenként, de a Pi kéri
+  // A DHT olvasása lassú, ezért csak 2 másodpercenként frissítjük a változókat
+  float h = dht.readHumidity();
+  float t = dht.readTemperature();
+
+  // Csak akkor frissítünk, ha érvényes az adat (nem NaN)
+  if (!isnan(h) && !isnan(t)) {
+    lastTemp = t;
+    lastHum = h;
+    
+    // Debug kiírás a soros monitorra
+    Serial.print("Szenzor: ");
+    Serial.print(lastTemp);
+    Serial.print(" C, ");
+    Serial.print(lastHum);
+    Serial.println(" %");
+  } else {
+    Serial.println("Hiba: Nem sikerült olvasni a DHT szenzort!");
+  }
+
+  delay(2000); 
 }
 
+// Ez a függvény fut le, amikor a Raspberry Pi kéri az adatot
 void sendData() {
-  float humidity = dht.readHumidity();
-  float temperature = dht.readTemperature();
-  
-  if (isnan(humidity) || isnan(temperature)) {
-    Wire.write("Error");
-  } else {
-    sprintf(dataBuffer, "Homerseklet: %.2f Paratartalom: %.2f", temperature, humidity);
-    Wire.write(dataBuffer);
+  // Ha a loop-ban még nem volt sikeres olvasás
+  if (lastTemp == 0.0 && lastHum == 0.0) {
+    Wire.write("0.0,0.0");
+    return;
   }
+
+  // Float konvertálása stringgé: érték, szélesség, tizedesjegyek, puffer
+  char tStr[7];
+  char hStr[7];
+  dtostrf(lastTemp, 5, 2, tStr);
+  dtostrf(lastHum, 5, 2, hStr);
+
+  // Összefűzés: "TEMP,HUM" formátum (pl: "24.50,55.00")
+  // Ez sokkal könnyebb a Pythonnak, mint a hosszú mondatok
+  memset(dataBuffer, 0, sizeof(dataBuffer)); // Puffer ürítése
+  sprintf(dataBuffer, "%s,%s", tStr, hStr);
+
+  Wire.write(dataBuffer);
 }
