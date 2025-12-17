@@ -1,0 +1,32 @@
+#include <Wire.h>
+#include <DHT.h>
+
+#define SLAVE_ADDRESS 0x04  // I2C slave cím, változtatható
+#define DHTPIN 4            // DHT szenzor pin (pl. GPIO4 az Arduino-n)
+#define DHTTYPE DHT11       // DHT11 vagy DHT22
+
+DHT dht(DHTPIN, DHTTYPE);
+char dataBuffer[50];  // Buffer az adatokhoz
+
+void setup() {
+  Wire.begin(SLAVE_ADDRESS);
+  Wire.onRequest(sendData);  // Küldés kérésre
+  dht.begin();
+  Serial.begin(9600);  // Debugoláshoz opcionális
+}
+
+void loop() {
+  delay(2000);  // Olvasás 2 másodpercenként, de a Pi kéri
+}
+
+void sendData() {
+  float humidity = dht.readHumidity();
+  float temperature = dht.readTemperature();
+  
+  if (isnan(humidity) || isnan(temperature)) {
+    Wire.write("Error");
+  } else {
+    sprintf(dataBuffer, "Homerseklet: %.2f Paratartalom: %.2f", temperature, humidity);
+    Wire.write(dataBuffer);
+  }
+}
